@@ -6,8 +6,17 @@
   :license  "MIT"
   :version "0.0.1"
   :serial t
-  :depends-on (#:scribble #:docxplora #:3bmd
-			  #:alexandria #:plump)
+  :depends-on (#:scribble
+	       #:docxplora
+
+	       #:3bmd
+	       #:3bmd-ext-tables
+
+	       #:alexandria
+	       #:serapeum
+	       #:split-sequence
+	       #:plump)
   :components ((:file "package")
+	       (:file "style")
 	       (:file "mdprinter")
 	       (:file "scrillex")))
