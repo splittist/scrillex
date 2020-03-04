@@ -19,7 +19,7 @@ That is
 (3bmd:parse-string-and-print-to-stream "\"This is a **_fine_ mess** you've gotten _me_ into!\" he said." *standard-output* :format :wml)
 ```
 
-yeilds
+yields
 
 ```xml
 <w:p><w:r><w:t xml:space="preserve">&quot;This is a </w:t></w:r><w:r><w:rPr><w:i w:val="true"/><w:iCs w:val="true"/><w:b w:val="true"/><w:bCs w:val="true"/></w:rPr><w:t>fine</w:t></w:r><w:r><w:rPr><w:b w:val="true"/><w:bCs w:val="true"/></w:rPr><w:t xml:space="preserve"> mess</w:t></w:r><w:r><w:t xml:space="preserve"> you've gotten </w:t></w:r><w:r><w:rPr><w:i w:val="true"/><w:iCs w:val="true"/></w:rPr><w:t>me</w:t></w:r><w:r><w:t xml:space="preserve"> into!&quot; he said.</w:t></w:r></w:p>
