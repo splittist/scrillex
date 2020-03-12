@@ -18,8 +18,6 @@ Not yet implemented:
 
 :image out of band
 
-:html, :raw-html -- doesn't seem useful
-
 Numbering reset is also out of band
 
 Note: relies on 3bmd::expand-tabs to get rid of tabs
@@ -27,6 +25,9 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 |#
 
 (defparameter *document* nil)
+
+(defparameter *html-is-wml* nil)
+
 (defparameter *in-code* nil)
 (defparameter *in-block-quote* nil)
 (defparameter *in-paragraph* nil)
@@ -46,7 +47,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
     ((3bmd-grammar::center) "center")
     ((3bmd-grammar::right) "end")))
 
-(defun open-paragraph (stream &optional style-name ilvl numid)
+(defun open-paragraph (stream &key style-name ilvl numid)
   (when *in-paragraph* (close-paragraph stream))
   (setf *in-paragraph* t)
   (write-string "<w:p>" stream)
@@ -164,7 +165,8 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (let ((paragraph-style (cond (*in-block-quote* "mdquote")
 			      ; (*in-code* "mdcode")
 			       (t nil))))
-    (open-paragraph stream paragraph-style))
+    (unless *in-list*
+      (open-paragraph stream :style-name paragraph-style)))
   (dolist (elem rest) (print-element elem stream))
   (close-paragraph stream))
 
@@ -173,7 +175,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
     (dolist (elem rest) (print-element elem stream))))
 
 (defmethod print-tagged-element ((tag (eql :heading)) stream rest)
-  (open-paragraph stream (format nil "mdheading~D" (getf rest :level)))
+  (open-paragraph stream :style-name (format nil "mdheading~D" (getf rest :level)))
   (dolist (elem (getf rest :contents)) (print-element elem stream))
   (close-paragraph stream))
 
@@ -190,9 +192,9 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defmethod print-tagged-element ((tag (eql :list-item)) stream rest)
   (let ((numid (ecase (first *in-list*)
 		 (:counted-list 1)
-		 (:bullet-list 2)))
+		 (:bullet-list 3)))
 	(ilvl (1- (length *in-list*))))
-    (open-paragraph stream "ListParagraph" ilvl numid)
+    (open-paragraph stream :style-name "mdlistparagraph":ilvl ilvl :numid numid)
     (dolist (elem rest) (print-element elem stream))))
 
 (defmethod print-tagged-element ((tag (eql :code)) stream rest)
@@ -306,10 +308,12 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (when *in-run* (close-run stream)))
 
 (defmethod print-tagged-element ((tag (eql :html)) stream rest)
-  )
+  (when *html-is-wml*
+    (format stream "~{~a~}" rest)))
 
 (defmethod print-tagged-element ((tag (eql :raw-html)) stream rest)
-  )
+  (when *html-is-wml*
+    (format stream "~{~a~}" rest)))
 
 (defmethod print-tagged-element ((tag (eql :entity)) stream rest) ;;FIXME check
   (dolist (string rest)
@@ -453,11 +457,19 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defun make-md-quote-style ()
   (let* ((style (make-style-base "paragraph" "mdquote" "MD Quote"))
 	 (para-props (plump:make-element style "w:pPr"))
-	 (run-props (plump:make-element style "w:rPr")))
-    (docxplora:make-element/attrs para-props "w:ind" "w:start" "1440")
+	#+(or) (run-props (plump:make-element style "w:rPr"))
+	 (para-border (plump:make-element para-props "w:pBdr")))
+    (docxplora:make-element/attrs para-border "w:left" "w:val" "single" "w:sz" "24" "w:space" "4" "w:color" "A9A9A9")
     (docxplora:make-element/attrs para-props "w:shd" "w:val" "1" "w:color" "auto" "w:fill" "DCDCDC")
     (docxplora:make-element/attrs para-props "w:spacing" "w:before" "240" "w:after" "240")
-    (docxplora:make-element/attrs run-props "w:i")
+    #+(or)(docxplora:make-element/attrs run-props "w:i")
+    style))
+
+(defun make-md-list-paragraph-style ()
+  (let* ((style (make-style-base "paragraph" "mdlistparagraph" "MD ListParagraph"))
+	 (para-props (plump:make-element style "w:pPr")))
+    (docxplora:make-element/attrs para-props "w:ind" "w:left" "720")
+    (plump:make-element para-props "w:contextualSpacing")
     style))
 
 (defun make-md-table-style ()
@@ -477,6 +489,47 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
     (docxplora:make-element/attrs cell-margins "w:right" "w:w" "108" "w:type" "dxa")
     style))
 
+(defvar *md-bullets* #(#\Bullet #\White_Bullet #\Black_Small_Square))
+
+(defvar *md-number-formats* #("decimal" "lowerLetter" "lowerRoman"))
+
+(defun make-md-numbering ()
+  (let* ((root (plump:make-root))
+	 (abstractnum (docxplora:make-element/attrs root "w:abstractNum" "w:abstractNumId" "1"))
+	 (abstractbul (docxplora:make-element/attrs root "w:abstractNum" "w:abstractNumId" "2"))
+	 (numbase (docxplora:make-element/attrs root "w:num" "w:numId" "1"))
+	 (numrestart (docxplora:make-element/attrs root "w:num" "w:numId" "2"))
+	 (bulletbase (docxplora:make-element/attrs root "w:num" "w:numId" "3")))
+    (docxplora:make-element/attrs abstractnum "w:multiLevelType" "w:val" "multilevel")
+    (dotimes (i 9)
+      (let ((ilvl (docxplora:make-element/attrs abstractnum "w:lvl" "w:ilvl" (princ-to-string i))))
+	(docxplora:make-element/attrs ilvl "w:start" "w:val" "1")
+	(docxplora:make-element/attrs ilvl "w:numFmt" "w:val" (aref *md-number-formats* (mod i 3)))
+	(docxplora:make-element/attrs ilvl "w:lvlText" "w:val" (format nil "%~D." (1+ i)))
+	(docxplora:make-element/attrs ilvl "w:lvlJc" "w:val" "left")
+	(let ((para-props (plump:make-element ilvl "w:pPr")))
+	  (docxplora:make-element/attrs para-props "w:ind" "w:left" (princ-to-string (* (1+ i) 720)) "w:hanging" "360"))))
+    (docxplora:make-element/attrs abstractbul "w:multiLevelType" "w:val" "hybridMultilevel")
+    (dotimes (i 9)
+      (let ((ilvl (docxplora:make-element/attrs abstractbul "w:lvl" "w:ilvl" (princ-to-string i))))
+	(docxplora:make-element/attrs ilvl "w:start" "w:val" "1")
+	(docxplora:make-element/attrs ilvl "w:numFmt" "w:val" "bullet")
+	(docxplora:make-element/attrs ilvl "w:lvlText" "w:val" (string (aref *md-bullets* (mod i 3))))
+	(docxplora:make-element/attrs ilvl "w:lvlJc" "w:val" "left")
+	(let ((para-props (plump:make-element ilvl "w:pPr")))
+	  (docxplora:make-element/attrs para-props "w:ind" "w:left" (princ-to-string (* (1+ i) 720)) "w:hanging" "360"))))
+    (docxplora:make-element/attrs numbase "w:abstractNumId" "w:val" "1")
+    (docxplora:make-element/attrs bulletbase "w:abstractNumId" "w:val" "2")
+    (docxplora:make-element/attrs numrestart "w:abstractNumId" "w:val" "1")
+    (dotimes (i 9)
+      (let ((lvloverride (docxplora:make-element/attrs numrestart "w:lvlOverride" "w:ilvl" (princ-to-string i))))
+	(docxplora:make-element/attrs lvloverride "w:startOverride" "w:val" "1")))
+    root))
+
+(defun add-md-numbering (numbering-part)
+  (let ((numbering (first (plump:get-elements-by-tag-name (opc:xml-root numbering-part) "w:numbering"))))
+    (setf (plump:children numbering) (plump:children (make-md-numbering)))))
+
 (defparameter *md-styles*
   (list (make-md-heading-style 0)
 	(make-md-heading-style 1)
@@ -488,7 +541,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	(make-md-link-style)
 	(make-md-quote-style)
 	(make-md-table-style)
-;	(make-md-numbering-styles)
+	(make-md-list-paragraph-style)
 	))
 
 (defun add-md-styles (document)
@@ -516,5 +569,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	   (body (lquery:with-master-document (mdroot) (lquery:$1 "w::body"))))
       (docxplora:add-style-definitions document)
       (add-md-styles document)
+      (let ((numbering-part (docxplora:add-numbering-definitions document)))
+	(add-md-numbering numbering-part))
       (setf (plump:children body) (plump:children xml))
       (docxplora:save-document document outfile))))

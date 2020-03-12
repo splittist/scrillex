@@ -39,6 +39,10 @@ Reads the Markdown file `infile` and produces a new Microsoft Word `.docx` file 
   
 These are deliberately fairly minimal: the idea is that you can modify the styles in your favourite wordprocessor later.
 
+*special variable* **\*HTML-IS-WML\***
+
+When bound to a non-`NIL` value treats `html`-like content as WordprocessingML markup and inserts it into the document. This makes it very easy to create an invalid document. When bound to `NIL` (the default), `html` content is ignored.
+
 ## Limitations
 
 As you might expect, `html` is not supported.
