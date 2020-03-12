@@ -54,13 +54,13 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (when (or style-name *para-justification*)
     (write-string "<w:pPr>" stream)
     (when style-name
-      (format stream "<w:pStyle w:val=\"~A\" />" style-name)
+      (format stream "<w:pStyle w:val=\"~A\" />" style-name))
     (when (and ilvl numid)
       (format stream "<w:numPr><w:ilvl w:val=\"~D\" /><w:numId w:val=\"~D\" /></w:numPr>"
 	      ilvl numid))
     (when *para-justification*
       (format stream "<w:jc w:val=\"~A\" />" (sym-jc (first *para-justification*))))
-    (write-string "</w:pPr>" stream))))
+    (write-string "</w:pPr>" stream)))
 
 (defun close-paragraph (stream)
   (when *in-run* (close-run stream))
