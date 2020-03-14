@@ -18,8 +18,6 @@ Not yet implemented:
 
 :image out of band
 
-Numbering reset is also out of band
-
 Note: relies on 3bmd::expand-tabs to get rid of tabs
 
 |#
@@ -301,6 +299,23 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
     (print-element "![" stream)
     (dolist (elem label) (print-element elem stream))
     (print-element "]" stream)))
+
+;; w:drawing wp:inline>a:graphic>a:graphicData>pic:pic>pic:nvPicPr>pic:cNvPr[name=...png]^pic:blipFill>a:blip[r:embed=rId...]
+
+#||
+add-media/picture?-part document file
+  get media type from file  -- trivial-mimes?
+  create part with appropriate content_type
+  read bytes into part content
+  create-relationship md (rel /word/document.xml /word/media/filename) (rt image)
+  return values part rId
+
+add-inline-picture document file
+  let id nthvalue 1 m-v-b add-media-part document file
+  create xml with name and rId - goes within run
+  need dimensions? how to get [png, jpeg, gif, bmp, tiff]
+
+||#
 
 (defun print-stuff (stuff stream)
   (when *in-run* (close-run stream))

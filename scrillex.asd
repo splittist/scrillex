@@ -12,11 +12,13 @@
 	       #:3bmd
 	       #:3bmd-ext-tables
 
+	       #:eclector
+	       
 	       #:alexandria
 	       #:serapeum
 	       #:split-sequence
 	       #:plump)
   :components ((:file "package")
-	       (:file "style")
+	       (:file "colourize")
 	       (:file "mdprinter")
 	       (:file "scrillex")))
