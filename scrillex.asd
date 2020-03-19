@@ -11,6 +11,7 @@
 
 	       #:3bmd
 	       #:3bmd-ext-tables
+	       #:3bmd-ext-code-blocks
 
 	       #:eclector
 	       
@@ -19,6 +20,5 @@
 	       #:split-sequence
 	       #:plump)
   :components ((:file "package")
-	       (:file "colourize")
 	       (:file "mdprinter")
 	       (:file "scrillex")))

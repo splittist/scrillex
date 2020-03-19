@@ -336,8 +336,8 @@ add-inline-picture document file
 	(write-string string stream)
 	(write-string (plump:decode-entities string) stream))))
 
-(defmethod print-tagged-element ((tag (eql :verbatim)) stream rest)
-  (dolist (string rest)
+(defun print-verbatim (stream stuff)
+  (dolist (string stuff)
     (let ((lines (split-sequence:split-sequence #\Newline string)))
       (dolist (line lines)
 	(open-paragraph stream)
@@ -348,12 +348,17 @@ add-inline-picture document file
 	(close-run stream)
 	(close-paragraph stream)))))
 
+(defmethod print-tagged-element ((tag (eql :verbatim)) stream rest)
+  (print-verbatim stream rest))
+
 (defmethod print-tagged-element ((tag (eql :plain)) stream rest)
   (print-stuff rest stream))
 
 
 (defmethod print-tagged-element ((tag (eql :reference)) stream rest)
   )
+
+;;; tables
 
 (defmethod print-tagged-element ((tag (eql '3bmd::table)) stream rest)
   (write-string "<w:tbl><w:tblPr><w:tblStyle w:val=\"mdtable\" /></w:tblPr>" stream)
@@ -377,7 +382,21 @@ add-inline-picture document file
 (defmethod print-tagged-element ((tag (eql '3bmd-grammar::td)) stream rest)
   )
 
+;;; code blocks
 
+(defun render-code-block (stream lang params content)
+  (declare (ignore params))
+  (if (alexandria:emptyp lang)
+      (print-verbatim stream (list content))
+      (let* ((l (alexandria:make-keyword lang)) ; FIXME: be nicer for unkown lang
+	     (runs (recolor:recolor-string content l)))
+	(write-string "<w:p><w:pPr><w:pStyle w:val=\"mdcodeblock\"/></w:pPr>" stream)
+	(write-string runs stream)
+	(write-string "</w:p>" stream))))
+
+(defmethod print-tagged-element ((tag (eql '3bmd-code-blocks::code-block)) stream rest)
+  (destructuring-bind (&key lang params content) rest
+    (render-code-block stream lang params content)))
 
 ;;; print-element
 
@@ -450,6 +469,21 @@ add-inline-picture document file
       (docxplora:make-element/attrs run-props "w:shd" "w:val" "1" "w:color" "auto" "w:fill" "DCDCDC"))
     style))
 
+(defun make-md-code-block-style ()
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "paragraph" custom-style 1 style-id "mdcodeblock"
+       (:name "MD Code Block"
+	:ui-priority 2
+	:q-format
+	:p-pr
+	(:shd 1 color "auto" fill "DCDCDC")
+	:r-pr
+	(:no-proof
+	 :r-fonts ascii "Consolas"
+	 :sz 20)))))))
+
 (defun make-md-link-style ()
   (let* ((root (plump:make-root))
 	 (style (docxplora:make-element/attrs root "w:style" "w:type" "character" "w:customStyle" "1" "w:styleId" "mdlink")))
@@ -504,6 +538,38 @@ add-inline-picture document file
     (docxplora:make-element/attrs cell-margins "w:right" "w:w" "108" "w:type" "dxa")
     style))
 
+(defparameter *md-code-block-styles*
+  '(("mdsymbol" "MD Symbol" "770055")
+    ("mdspecial" "MD Special" "FF5000")
+    ("mdkeyword" "MD Keyword" "770000")
+    ("mdcomment" "MD Comment" "007777")
+    ("mdstring" "MD String" "777777")
+    ("mdatom" "MD Atom" "314F4F")
+    ("mdmacro" "MD Macro" "FF5000")
+    ("mdvariable" "MD Variable" "36648B")
+    ("mdfunction" "MD Function" "884789")
+    ("mdattribute" "MD Attribute" "FF5000")
+    ("mdcharacter" "MD Character" "0055AA")
+    ("mdsyntaxerror" "MD Syntax Error" "FF0000")
+    ("mddiff-deleted" "MD Diff-Deleted" "5F2121")
+    ("mddiff-added" "MD Diff-Added" "215F21")))
+
+(defun md-code-block-style (id name color)
+  `(:style type "character" custom-style 1 style-id ,id
+     (:name ,name
+      :ui-priority 2
+      :q-format
+      :r-pr
+      (:color ,color))))
+
+(defun md-code-block-styles ()
+  (mapcar (lambda (entry)
+	    (plump:first-child
+	     (plump:parse
+	      (wuss:compile-style
+	       (apply #'md-code-block-style entry)))))
+	  *md-code-block-styles*))
+
 (defvar *md-bullets* #(#\Bullet #\White_Bullet #\Black_Small_Square))
 
 (defvar *md-number-formats* #("decimal" "lowerLetter" "lowerRoman"))
@@ -557,10 +623,11 @@ add-inline-picture document file
 	(make-md-quote-style)
 	(make-md-table-style)
 	(make-md-list-paragraph-style)
+	(make-md-code-block-style)
 	))
 
 (defun add-md-styles (document)
-  (dolist (style *md-styles*)
+  (dolist (style (append *md-styles* (md-code-block-styles))) ; FIXME - make code-block optional?
     (alexandria:if-let (existing-style (docxplora:find-style-by-id document (plump:attribute style "w:styleId")))
       (progn
 	(docxplora:remove-style document existing-style)
@@ -575,6 +642,7 @@ add-inline-picture document file
 (defun md->docx (infile outfile)
   (let* ((3bmd:*smart-quotes* t)
 	 (3bmd-tables:*tables* t)
+	 (3bmd-code-blocks:*code-blocks* t)
 	 (document (docxplora:make-document))
 	 (*document* (docxplora:add-main-document document))
 	 (xml (plump:parse
