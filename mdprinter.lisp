@@ -14,15 +14,12 @@ Use:
 
 (3bmd:print-doc-to-stream doc stream :format :wml)
 
-Not yet implemented:
-
-:image out of band
-
 Note: relies on 3bmd::expand-tabs to get rid of tabs
 
 |#
 
 (defparameter *document* nil)
+(defparameter *md-infile* nil)
 
 (defparameter *html-is-wml* nil)
 
@@ -34,6 +31,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defparameter *in-text* nil)
 (defparameter *run-props* '()) ;; stack of :emph, :strong, :code and :hyperlink
 (defparameter *in-list* nil) ;; stack of :counted-list and :bullet-list
+(defparameter *new-list* nil) ;; t when starting a new (counted) list
 
 (defun preservep (string)
   (or (alexandria:starts-with #\Space string :test #'char=)
@@ -178,6 +176,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (close-paragraph stream))
 
 (defmethod print-tagged-element ((tag (eql :counted-list)) stream rest)
+  (setf *new-list* t)
   (push :counted-list *in-list*)
   (dolist (elem rest) (print-element elem stream))
   (pop *in-list*))
@@ -189,7 +188,8 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 
 (defmethod print-tagged-element ((tag (eql :list-item)) stream rest)
   (let ((numid (ecase (first *in-list*)
-		 (:counted-list 1)
+		 (:counted-list (cond (*new-list* (setf *new-list* nil) 2)
+				      (t 1)))
 		 (:bullet-list 3)))
 	(ilvl (1- (length *in-list*))))
     (open-paragraph stream :style-name "mdlistparagraph":ilvl ilvl :numid numid)
@@ -293,6 +293,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	   (alexandria:when-let (tail (getf rest :tail))
 	     (print-element tail stream))))))
 
+#+(or)
 (defmethod print-tagged-element ((tag (eql :image)) stream rest)
   (let* ((rest (cdr (first rest)))
 	 (label (getf rest :label)))
@@ -300,22 +301,28 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
     (dolist (elem label) (print-element elem stream))
     (print-element "]" stream)))
 
-;; w:drawing wp:inline>a:graphic>a:graphicData>pic:pic>pic:nvPicPr>pic:cNvPr[name=...png]^pic:blipFill>a:blip[r:embed=rId...]
-
-#||
-add-media/picture?-part document file
-  get media type from file  -- trivial-mimes?
-  create part with appropriate content_type
-  read bytes into part content
-  create-relationship md (rel /word/document.xml /word/media/filename) (rt image)
-  return values part rId
-
-add-inline-picture document file
-  let id nthvalue 1 m-v-b add-media-part document file
-  create xml with name and rId - goes within run
-  need dimensions? how to get [png, jpeg, gif, bmp, tiff]
-
-||#
+(defmethod print-tagged-element ((tag (eql :image)) stream rest)
+  (let* ((rest (cdr (first rest)))
+	 (source (getf rest :source))
+	 (label (getf rest :label))
+	 #+(or)(title (getf rest :title)))
+    (flet ((print-as-text ()
+	     (print-element "![" stream)
+	     (dolist (elem label) (print-element elem stream))
+	     (print-element "]" stream)))
+      (cond ((or (null *document*)
+		 (null source)
+		 (null
+		  (ignore-errors
+		    (imagesniff:image-type
+		     (merge-pathnames source *md-infile*)))))
+	     (print-as-text))
+	    (t
+	     (let ((im (docxplora:make-inline-image
+			*document*
+			(merge-pathnames source *md-infile*))))
+	       (when *in-text* (close-text stream))
+	       (plump:serialize im stream)))))))
 
 (defun print-stuff (stuff stream)
   (when *in-run* (close-run stream))
@@ -441,33 +448,35 @@ add-inline-picture document file
 (defparameter *md-heading-sizes* #(30 24 21 18 16 14))
 
 (defun make-md-heading-style (i)
-  (let* ((root (plump:make-root))
-	 (style (docxplora:make-element/attrs root "w:style" "w:type" "paragraph" "w:customStyle" "1" "w:styleId" (format nil "mdheading~D" (1+ i)))))
-    (docxplora:make-element/attrs style "w:name" "w:val" (format nil "MD Heading ~D" (1+ i)))
-    (docxplora:make-element/attrs style "w:uiPriority" "w:val" "1")
-    (docxplora:make-element/attrs style "w:qFormat")
-    (let ((para-props (plump:make-element style "w:pPr")))
-      (docxplora:make-element/attrs para-props "w:keepLines")
-      (docxplora:make-element/attrs para-props "w:keepNext")
-      (docxplora:make-element/attrs para-props "w:outlineLvl" "w:val" (format nil "~D" i))
-      (docxplora:make-element/attrs para-props "w:spacing" "w:after" (format nil "~D" (- 240 (* 20 i)))))
-    (let ((run-props (plump:make-element style "w:rPr")))
-      (docxplora:make-element/attrs run-props "w:b")
-      (docxplora:make-element/attrs run-props "w:sz" "w:val" (format nil "~D" (* 2 (aref *md-heading-sizes* i)))))
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     `(:style type "paragraph" custom-style 1 style-id ,(format nil "mdheading~D" (1+ i))
+       (:name ,(format nil "MD Heading ~D" (1+ i))
+	:ui-priority 1
+	:q-format
+	:p-pr
+	(:keep-lines
+	 :keep-next
+	 :outline-lvl ,(princ-to-string i)
+	 :spacing after ,(princ-to-string (- 240 (* 20 1))))
+	:r-pr
+	(:b
+	 :sz ,(princ-to-string (* 2 (aref *md-heading-sizes* i))))))))))
 
 (defun make-md-code-style ()
-  (let* ((root (plump:make-root))
-	 (style (docxplora:make-element/attrs root "w:style" "w:type" "character" "w:customStyle" "1" "w:styleId" "mdcode")))
-    (docxplora:make-element/attrs style "w:name" "w:val" "MD Code")
-    (docxplora:make-element/attrs style "w:uiPriority" "w:val" "1")
-    (docxplora:make-element/attrs style "w:qFormat")
-    (let ((run-props (plump:make-element style "w:rPr")))
-      (docxplora:make-element/attrs run-props "w:noProof")
-      (docxplora:make-element/attrs run-props "w:rFonts" "w:ascii" "Consolas")
-      (docxplora:make-element/attrs run-props "w:sz" "w:val" "20")
-      (docxplora:make-element/attrs run-props "w:shd" "w:val" "1" "w:color" "auto" "w:fill" "DCDCDC"))
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "character" custom-style 1 style-id "mdcode"
+       (:name "MD Code"
+	:ui-priority 1
+	:q-format
+	:r-pr
+	(:no-proof
+	 :f-fonts ascii "Consolas"
+	 :sz 20
+	 :shd 1 color "auto" fill "DCDCDC")))))))
 
 (defun make-md-code-block-style ()
   (plump:first-child
@@ -485,58 +494,64 @@ add-inline-picture document file
 	 :sz 20)))))))
 
 (defun make-md-link-style ()
-  (let* ((root (plump:make-root))
-	 (style (docxplora:make-element/attrs root "w:style" "w:type" "character" "w:customStyle" "1" "w:styleId" "mdlink")))
-    (docxplora:make-element/attrs style "w:name" "w:val" "MD Link")
-    (docxplora:make-element/attrs style "w:uiPriority" "w:val" "1")
-    (docxplora:make-element/attrs style "w:qFormat")
-    (let ((run-props (plump:make-element style "w:rPr")))
-      (docxplora:make-element/attrs run-props "w:u" "w:val" "single")
-      (docxplora:make-element/attrs run-props "w:color" "w:val" "0000FF"))
-    style))
-
-(defun make-style-base (type id name)
-  (let* ((root (plump:make-root))
-	 (style (docxplora:make-element/attrs root "w:style" "w:type" type "w:customStyle" "1" "w:styleId" id)))
-    (docxplora:make-element/attrs style "w:name" "w:val" name)
-    (docxplora:make-element/attrs style "w:uiPriority" "w:val" "1")
-    (docxplora:make-element/attrs style "w:qFormat")
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "character" custom-style 1 style-id "mdlink"
+       (:name "MD Link"
+	:ui-priority 1
+	:q-format
+	:r-pr
+	(:u "single"
+	 :color "0000FF")))))))
 
 (defun make-md-quote-style ()
-  (let* ((style (make-style-base "paragraph" "mdquote" "MD Quote"))
-	 (para-props (plump:make-element style "w:pPr"))
-	#+(or) (run-props (plump:make-element style "w:rPr"))
-	 (para-border (plump:make-element para-props "w:pBdr")))
-    (docxplora:make-element/attrs para-border "w:left" "w:val" "single" "w:sz" "24" "w:space" "4" "w:color" "A9A9A9")
-    (docxplora:make-element/attrs para-props "w:shd" "w:val" "1" "w:color" "auto" "w:fill" "DCDCDC")
-    (docxplora:make-element/attrs para-props "w:spacing" "w:before" "240" "w:after" "240")
-    #+(or)(docxplora:make-element/attrs run-props "w:i")
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "paragraph" custom-style 1 style-id "mdquote"
+       (:name "MD Link"
+	:ui-priority 1
+	:q-format
+	:p-pr
+	(:p-bdr
+	 (:left "single" sz 24 space 4 color "A9A9A9")
+	 :shd 1 color "auto" fill "DCDCDC"
+	 :spacing before 240 after 240)))))))
 
 (defun make-md-list-paragraph-style ()
-  (let* ((style (make-style-base "paragraph" "mdlistparagraph" "MD ListParagraph"))
-	 (para-props (plump:make-element style "w:pPr")))
-    (docxplora:make-element/attrs para-props "w:ind" "w:left" "720")
-    (plump:make-element para-props "w:contextualSpacing")
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "paragraph" custom-style 1 style-id "mdlistparagraph"
+       (:name "MD List Paragraph"
+	:ui-priority 1
+	:q-format
+	:p-pr
+	(:ind left 720
+	 :contextual-spacing)))))))
 
 (defun make-md-table-style ()
-  (let* ((style (make-style-base "table" "mdtable" "MD Table"))
-	 (para-props (plump:make-element style "w:pPr"))
-	 (table-props (plump:make-element style "w:tblPr"))
-	 (borders (plump:make-element table-props "w:tblBorders"))
-	 (cell-margins (plump:make-element table-props "w:tblCellMar")))
-    (docxplora:make-element/attrs para-props "w:spacing" "w:after" "0")
-    (docxplora:make-element/attrs borders "w:top" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs borders "w:left" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs borders "w:bottom" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs borders "w:right" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs borders "w:insideH" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs borders "w:insideV" "w:val" "single" "w:sz" "4" "w:space" "0" "w:color" "auto")
-    (docxplora:make-element/attrs cell-margins "w:left" "w:w" "108" "w:type" "dxa")
-    (docxplora:make-element/attrs cell-margins "w:right" "w:w" "108" "w:type" "dxa")
-    style))
+  (plump:first-child
+   (plump:parse
+    (wuss:compile-style
+     '(:style type "table" custom-style 1 style-id "mdtable"
+       (:name "MD Table"
+	:ui-priority 1
+	:q-format
+	:p-pr
+	(:spacing after 0)
+	:tbl-pr
+	(:tbl-borders
+	 (:top "single" sz 4 space 0 color "auto"
+	  :left "single" sz 4 space 0 color "auto"
+	  :bottom "single" sz 4 space 0 color "auto"
+	  :right "single" sz 4 space 0 color "auto"
+	  :inside-h "single" sz 4 space 0 color "auto"
+	  :inside-v "single" sz 4 space 0 color "auto")
+	 :tbl-cell-mar
+	 (:left w 108 type "dxa"
+	  :right w 108 type "dxa"))))))))
 
 (defparameter *md-code-block-styles*
   '(("mdsymbol" "MD Symbol" "770055")
@@ -574,42 +589,45 @@ add-inline-picture document file
 
 (defvar *md-number-formats* #("decimal" "lowerLetter" "lowerRoman"))
 
-(defun make-md-numbering ()
-  (let* ((root (plump:make-root))
-	 (abstractnum (docxplora:make-element/attrs root "w:abstractNum" "w:abstractNumId" "1"))
-	 (abstractbul (docxplora:make-element/attrs root "w:abstractNum" "w:abstractNumId" "2"))
-	 (numbase (docxplora:make-element/attrs root "w:num" "w:numId" "1"))
-	 (numrestart (docxplora:make-element/attrs root "w:num" "w:numId" "2"))
-	 (bulletbase (docxplora:make-element/attrs root "w:num" "w:numId" "3")))
-    (docxplora:make-element/attrs abstractnum "w:multiLevelType" "w:val" "multilevel")
-    (dotimes (i 9)
-      (let ((ilvl (docxplora:make-element/attrs abstractnum "w:lvl" "w:ilvl" (princ-to-string i))))
-	(docxplora:make-element/attrs ilvl "w:start" "w:val" "1")
-	(docxplora:make-element/attrs ilvl "w:numFmt" "w:val" (aref *md-number-formats* (mod i 3)))
-	(docxplora:make-element/attrs ilvl "w:lvlText" "w:val" (format nil "%~D." (1+ i)))
-	(docxplora:make-element/attrs ilvl "w:lvlJc" "w:val" "left")
-	(let ((para-props (plump:make-element ilvl "w:pPr")))
-	  (docxplora:make-element/attrs para-props "w:ind" "w:left" (princ-to-string (* (1+ i) 720)) "w:hanging" "360"))))
-    (docxplora:make-element/attrs abstractbul "w:multiLevelType" "w:val" "hybridMultilevel")
-    (dotimes (i 9)
-      (let ((ilvl (docxplora:make-element/attrs abstractbul "w:lvl" "w:ilvl" (princ-to-string i))))
-	(docxplora:make-element/attrs ilvl "w:start" "w:val" "1")
-	(docxplora:make-element/attrs ilvl "w:numFmt" "w:val" "bullet")
-	(docxplora:make-element/attrs ilvl "w:lvlText" "w:val" (string (aref *md-bullets* (mod i 3))))
-	(docxplora:make-element/attrs ilvl "w:lvlJc" "w:val" "left")
-	(let ((para-props (plump:make-element ilvl "w:pPr")))
-	  (docxplora:make-element/attrs para-props "w:ind" "w:left" (princ-to-string (* (1+ i) 720)) "w:hanging" "360"))))
-    (docxplora:make-element/attrs numbase "w:abstractNumId" "w:val" "1")
-    (docxplora:make-element/attrs bulletbase "w:abstractNumId" "w:val" "2")
-    (docxplora:make-element/attrs numrestart "w:abstractNumId" "w:val" "1")
-    (dotimes (i 9)
-      (let ((lvloverride (docxplora:make-element/attrs numrestart "w:lvlOverride" "w:ilvl" (princ-to-string i))))
-	(docxplora:make-element/attrs lvloverride "w:startOverride" "w:val" "1")))
-    root))
+(defparameter *md-numbering-definitions*
+  `((:abstract-num abstract-num-id 1
+     (:multi-level-type "multilevel"
+      ,@(loop for i below 9 appending
+	     `(:lvl ilvl ,i
+	       (:start 1
+		:num-fmt ,(aref *md-number-formats* (mod i 3))	    
+		:lvl-text ,(format nil "%~D." (1+ i))
+		:lvl-jc "left"
+		:p-pr
+		(:ind left ,(* (1+ i) 720) hanging 360))))))
+    (:abstract-num abstract-num-id 2
+     (:multi-level-type "hybrid-multilevel"
+      ,@(loop for i below 9 appending
+	     `(:lvl ilvl ,i
+	       (:start 1
+		:num-fmt "bullet"
+		:lvl-text ,(aref *md-bullets* (mod i 3))       
+		:lvl-jc "left"
+		:p-pr
+		(:ind left ,(* (1+ i) 720) hanging 360))))))
+    (:num num-id 1
+     (:abstract-num-id 1))
+    (:num num-id 2
+     (:abstract-num-id 1
+      ,@(loop for i below 9 appending
+	     `(:lvl-override ilvl ,i
+			     (:start-override 1)))))
+    (:num num-id 3
+     (:abstract-num-id 2))))
 
 (defun add-md-numbering (numbering-part)
   (let ((numbering (first (plump:get-elements-by-tag-name (opc:xml-root numbering-part) "w:numbering"))))
-    (setf (plump:children numbering) (plump:children (make-md-numbering)))))
+    (dolist (entry
+	      (mapcar #'(lambda (form) (plump:first-child
+					(plump:parse
+					 (wuss:compile-style form))))
+		      *md-numbering-definitions*))
+      (plump:append-child numbering entry))))
 
 (defparameter *md-styles*
   (list (make-md-heading-style 0)
@@ -635,19 +653,21 @@ add-inline-picture document file
       (docxplora:add-style document style))))
 
 (defun coalesce-all-adjacent-run-text (root)
-  (let ((runs (lquery:with-master-document (root) (lquery:$ "w::r"))))
+  (let ((runs (lquery:with-master-document (root) (lquery:$ "w::r")))) ; FIXME - get-elements-by-tag-name
     (serapeum:do-each (run runs)
       (docxplora:coalesce-adjacent-text run))))
 
-(defun md->docx (infile outfile)
+(defun md->docx (infile &optional outfile)
   (let* ((3bmd:*smart-quotes* t)
 	 (3bmd-tables:*tables* t)
 	 (3bmd-code-blocks:*code-blocks* t)
+	 (*md-infile* (merge-pathnames infile (user-homedir-pathname)))
+	 (outfile (or outfile (merge-pathnames (make-pathname :type "docx") *md-infile*)))
 	 (document (docxplora:make-document))
 	 (*document* (docxplora:add-main-document document))
 	 (xml (plump:parse
 	       (with-output-to-string (s)
-		 (3bmd:parse-and-print-to-stream infile s :format :wml)))))
+		 (3bmd:parse-and-print-to-stream *md-infile* s :format :wml)))))
     (let* ((mdroot (opc:xml-root *document*))
 	   (body (lquery:with-master-document (mdroot) (lquery:$1 "w::body"))))
       (docxplora:add-style-definitions document)

@@ -8,6 +8,9 @@
   :serial t
   :depends-on (#:scribble
 	       #:docxplora
+	       #:wuss
+	       #:recolor
+	       #:imagesniff
 
 	       #:3bmd
 	       #:3bmd-ext-tables
