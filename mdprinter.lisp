@@ -19,6 +19,8 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 |#
 
 (defparameter *document* nil)
+(defparameter *numbering-definitions* nil)
+(defparameter *style-definitions* nil)
 (defparameter *md-infile* nil)
 
 (defparameter *html-is-wml* nil)
@@ -32,6 +34,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defparameter *run-props* '()) ;; stack of :emph, :strong, :code and :hyperlink
 (defparameter *in-list* nil) ;; stack of :counted-list and :bullet-list
 (defparameter *new-list* nil) ;; t when starting a new (counted) list
+(defparameter *very-first-list* t) ;; t when it's the first list in the doc
 
 (defun preservep (string)
   (or (alexandria:starts-with #\Space string :test #'char=)
@@ -176,7 +179,9 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (close-paragraph stream))
 
 (defmethod print-tagged-element ((tag (eql :counted-list)) stream rest)
-  (setf *new-list* t)
+    (if *very-first-list*
+	(setf *very-first-list* nil)
+	(setf *new-list* t))
   (push :counted-list *in-list*)
   (dolist (elem rest) (print-element elem stream))
   (pop *in-list*))
@@ -186,9 +191,22 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (dolist (elem rest) (print-element elem stream))
   (pop *in-list*))
 
+(defun maybe-add-start-override ()
+  (if *document*
+      (let* ((nso (docxplora:make-numbering-start-override *numbering-definitions* 1))
+	     (num-id (plump:attribute nso "w:numId"))
+	     (numbering (docxplora:get-first-element-by-tag-name
+			 (opc:xml-root *numbering-definitions*)
+			 "w:numbering")))
+	(plump:append-child numbering nso)
+	num-id)
+      2))
+
 (defmethod print-tagged-element ((tag (eql :list-item)) stream rest)
   (let ((numid (ecase (first *in-list*)
-		 (:counted-list (cond (*new-list* (setf *new-list* nil) 2)
+		 (:counted-list (cond (*new-list*
+				       (setf *new-list* nil)
+				       (maybe-add-start-override))
 				      (t 1)))
 		 (:bullet-list 3)))
 	(ilvl (1- (length *in-list*))))
@@ -252,7 +270,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
   (when *in-run* (close-run stream))
   (let ((source (getf rest :source)))
     (setf source (if (internalp source)
-		     (format nil "w:anchor=\"~A\"" source)
+		     (format nil "w:anchor=\"~A\"" (subseq source 1))
 		     (format nil "w:id=\"~A\""
 			     (opc:relationship-id
 			      (docxplora:ensure-hyperlink *document* source)))))
@@ -274,7 +292,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	   (when *in-run* (close-run stream))
 	   (let ((source (first ref)))
 	     (setf source (if (internalp source)
-			      (format nil "w:anchor=\"~A\"" source)
+			      (format nil "w:anchor=\"~A\"" (subseq source 1))
 			      (format nil "w:id=\"~A\""
 				      (opc:relationship-id
 				       (docxplora:ensure-hyperlink *document* source)))))
@@ -292,14 +310,6 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	   (print-element "]" stream)
 	   (alexandria:when-let (tail (getf rest :tail))
 	     (print-element tail stream))))))
-
-#+(or)
-(defmethod print-tagged-element ((tag (eql :image)) stream rest)
-  (let* ((rest (cdr (first rest)))
-	 (label (getf rest :label)))
-    (print-element "![" stream)
-    (dolist (elem label) (print-element elem stream))
-    (print-element "]" stream)))
 
 (defmethod print-tagged-element ((tag (eql :image)) stream rest)
   (let* ((rest (cdr (first rest)))
@@ -433,7 +443,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defmethod 3bmd::print-doc-to-stream-using-format (doc stream (format (eql :wml)))
   (let ((*references* (3bmd::extract-refs doc))
 	*in-code* *in-block-quote* *in-paragraph* *in-run* *in-text* *run-props* *in-list*
-	*para-justification*)
+	*para-justification* *new-list* (*very-first-list* t))
     (let ((root
 	   (plump:parse
 	    (with-output-to-string (s)
@@ -474,7 +484,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	:q-format
 	:r-pr
 	(:no-proof
-	 :f-fonts ascii "Consolas"
+	 :r-fonts ascii "Consolas"
 	 :sz 20
 	 :shd 1 color "auto" fill "DCDCDC")))))))
 
@@ -614,9 +624,8 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
      (:abstract-num-id 1))
     (:num num-id 2
      (:abstract-num-id 1
-      ,@(loop for i below 9 appending
-	     `(:lvl-override ilvl ,i
-			     (:start-override 1)))))
+      (:lvl-override ilvl 0
+       (:start-override 1))))
     (:num num-id 3
      (:abstract-num-id 2))))
 
@@ -653,7 +662,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
       (docxplora:add-style document style))))
 
 (defun coalesce-all-adjacent-run-text (root)
-  (let ((runs (lquery:with-master-document (root) (lquery:$ "w::r")))) ; FIXME - get-elements-by-tag-name
+  (let ((runs (plump:get-elements-by-tag-name root "w:r")))
     (serapeum:do-each (run runs)
       (docxplora:coalesce-adjacent-text run))))
 
@@ -665,14 +674,14 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 	 (outfile (or outfile (merge-pathnames (make-pathname :type "docx") *md-infile*)))
 	 (document (docxplora:make-document))
 	 (*document* (docxplora:add-main-document document))
-	 (xml (plump:parse
-	       (with-output-to-string (s)
-		 (3bmd:parse-and-print-to-stream *md-infile* s :format :wml)))))
-    (let* ((mdroot (opc:xml-root *document*))
-	   (body (lquery:with-master-document (mdroot) (lquery:$1 "w::body"))))
-      (docxplora:add-style-definitions document)
-      (add-md-styles document)
-      (let ((numbering-part (docxplora:add-numbering-definitions document)))
-	(add-md-numbering numbering-part))
+	 (*numbering-definitions* (docxplora:ensure-numbering-definitions document))
+	 (*style-definitions* (docxplora:add-style-definitions document)))
+    (add-md-styles document)
+    (add-md-numbering *numbering-definitions*)
+    (let* ((xml (plump:parse
+		 (with-output-to-string (s)
+		  (3bmd:parse-and-print-to-stream *md-infile* s :format :wml))))
+	   (mdroot (opc:xml-root *document*))
+	   (body (docxplora:get-first-element-by-tag-name mdroot "w:body")))
       (setf (plump:children body) (plump:children xml))
       (docxplora:save-document document outfile))))
