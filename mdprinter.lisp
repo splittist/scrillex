@@ -458,110 +458,96 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defparameter *md-heading-sizes* #(30 24 21 18 16 14))
 
 (defun make-md-heading-style (i)
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     `(:style type "paragraph" custom-style 1 style-id ,(format nil "mdheading~D" (1+ i))
-       (:name ,(format nil "MD Heading ~D" (1+ i))
-	:ui-priority 1
-	:q-format
-	:p-pr
-	(:keep-lines
-	 :keep-next
-	 :outline-lvl ,(princ-to-string i)
-	 :spacing after ,(princ-to-string (- 240 (* 20 1))))
-	:r-pr
-	(:b
-	 :sz ,(princ-to-string (* 2 (aref *md-heading-sizes* i))))))))))
+  (wuss:compile-style-to-element
+   `(:style type "paragraph" custom-style 1 style-id ,(format nil "mdheading~D" (1+ i))
+	    (:name ,(format nil "MD Heading ~D" (1+ i))
+	     :ui-priority 1
+	     :q-format
+	     :p-pr
+	     (:keep-lines
+	      :keep-next
+	      :outline-lvl ,(princ-to-string i)
+	      :spacing after ,(princ-to-string (- 240 (* 20 1))))
+	     :r-pr
+	     (:b
+	      :sz ,(princ-to-string (* 2 (aref *md-heading-sizes* i))))))))
 
 (defun make-md-code-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "character" custom-style 1 style-id "mdcode"
-       (:name "MD Code"
-	:ui-priority 1
-	:q-format
-	:r-pr
-	(:no-proof
-	 :r-fonts ascii "Consolas"
-	 :sz 20
-	 :shd 1 color "auto" fill "DCDCDC")))))))
+  (wuss:compile-style-to-element
+   '(:style type "character" custom-style 1 style-id "mdcode"
+     (:name "MD Code"
+      :ui-priority 1
+      :q-format
+      :r-pr
+      (:no-proof
+       :r-fonts ascii "Consolas"
+       :sz 20
+       :shd 1 color "auto" fill "DCDCDC")))))
 
 (defun make-md-code-block-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "paragraph" custom-style 1 style-id "mdcodeblock"
-       (:name "MD Code Block"
-	:ui-priority 2
-	:q-format
-	:p-pr
-	(:shd 1 color "auto" fill "DCDCDC")
-	:r-pr
-	(:no-proof
-	 :r-fonts ascii "Consolas"
-	 :sz 20)))))))
+  (wuss:compile-style-to-element
+   '(:style type "paragraph" custom-style 1 style-id "mdcodeblock"
+     (:name "MD Code Block"
+      :ui-priority 2
+      :q-format
+      :p-pr
+      (:shd 1 color "auto" fill "DCDCDC")
+      :r-pr
+      (:no-proof
+       :r-fonts ascii "Consolas"
+       :sz 20)))))
 
 (defun make-md-link-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "character" custom-style 1 style-id "mdlink"
-       (:name "MD Link"
-	:ui-priority 1
-	:q-format
-	:r-pr
-	(:u "single"
-	 :color "0000FF")))))))
+  (wuss:compile-style-to-element
+   '(:style type "character" custom-style 1 style-id "mdlink"
+     (:name "MD Link"
+      :ui-priority 1
+      :q-format
+      :r-pr
+      (:u "single"
+       :color "0000FF")))))
 
 (defun make-md-quote-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "paragraph" custom-style 1 style-id "mdquote"
-       (:name "MD Link"
-	:ui-priority 1
-	:q-format
-	:p-pr
-	(:p-bdr
-	 (:left "single" sz 24 space 4 color "A9A9A9")
-	 :shd 1 color "auto" fill "DCDCDC"
-	 :spacing before 240 after 240)))))))
+  (wuss:compile-style-to-element
+   '(:style type "paragraph" custom-style 1 style-id "mdquote"
+     (:name "MD Link"
+      :ui-priority 1
+      :q-format
+      :p-pr
+      (:p-bdr
+       (:left "single" sz 24 space 4 color "A9A9A9")
+       :shd 1 color "auto" fill "DCDCDC"
+       :spacing before 240 after 240)))))
 
 (defun make-md-list-paragraph-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "paragraph" custom-style 1 style-id "mdlistparagraph"
-       (:name "MD List Paragraph"
-	:ui-priority 1
-	:q-format
-	:p-pr
-	(:ind left 720
-	 :contextual-spacing)))))))
+  (wuss:compile-style-to-element
+   '(:style type "paragraph" custom-style 1 style-id "mdlistparagraph"
+     (:name "MD List Paragraph"
+      :ui-priority 1
+      :q-format
+      :p-pr
+      (:ind left 720
+       :contextual-spacing)))))
 
 (defun make-md-table-style ()
-  (plump:first-child
-   (plump:parse
-    (wuss:compile-style
-     '(:style type "table" custom-style 1 style-id "mdtable"
-       (:name "MD Table"
-	:ui-priority 1
-	:q-format
-	:p-pr
-	(:spacing after 0)
-	:tbl-pr
-	(:tbl-borders
-	 (:top "single" sz 4 space 0 color "auto"
-	  :left "single" sz 4 space 0 color "auto"
-	  :bottom "single" sz 4 space 0 color "auto"
-	  :right "single" sz 4 space 0 color "auto"
-	  :inside-h "single" sz 4 space 0 color "auto"
-	  :inside-v "single" sz 4 space 0 color "auto")
-	 :tbl-cell-mar
-	 (:left w 108 type "dxa"
-	  :right w 108 type "dxa"))))))))
+  (wuss:compile-style-to-element
+   '(:style type "table" custom-style 1 style-id "mdtable"
+     (:name "MD Table"
+      :ui-priority 1
+      :q-format
+      :p-pr
+      (:spacing after 0)
+      :tbl-pr
+      (:tbl-borders
+       (:top "single" sz 4 space 0 color "auto"
+	:left "single" sz 4 space 0 color "auto"
+	:bottom "single" sz 4 space 0 color "auto"
+	:right "single" sz 4 space 0 color "auto"
+	:inside-h "single" sz 4 space 0 color "auto"
+	:inside-v "single" sz 4 space 0 color "auto")
+       :tbl-cell-mar
+       (:left w 108 type "dxa"
+	:right w 108 type "dxa"))))))
 
 (defparameter *md-code-block-styles*
   '(("mdsymbol" "MD Symbol" "770055")
@@ -589,10 +575,8 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 
 (defun md-code-block-styles ()
   (mapcar (lambda (entry)
-	    (plump:first-child
-	     (plump:parse
-	      (wuss:compile-style
-	       (apply #'md-code-block-style entry)))))
+	    (wuss:compile-style-to-element
+	     (apply #'md-code-block-style entry)))
 	  *md-code-block-styles*))
 
 (defvar *md-bullets* #(#\Bullet #\White_Bullet #\Black_Small_Square))
@@ -632,10 +616,7 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 (defun add-md-numbering (numbering-part)
   (let ((numbering (first (plump:get-elements-by-tag-name (opc:xml-root numbering-part) "w:numbering"))))
     (dolist (entry
-	      (mapcar #'(lambda (form) (plump:first-child
-					(plump:parse
-					 (wuss:compile-style form))))
-		      *md-numbering-definitions*))
+	      (mapcar #'wuss:compile-style-to-element *md-numbering-definitions*))
       (plump:append-child numbering entry))))
 
 (defparameter *md-styles*
@@ -655,7 +636,10 @@ Note: relies on 3bmd::expand-tabs to get rid of tabs
 
 (defun add-md-styles (document)
   (dolist (style (append *md-styles* (md-code-block-styles))) ; FIXME - make code-block optional?
-    (alexandria:if-let (existing-style (docxplora:find-style-by-id document (plump:attribute style "w:styleId")))
+    (alexandria:if-let (existing-style
+			(docxplora:find-style-by-id
+			 document
+			 (plump:attribute style "w:styleId")))
       (progn
 	(docxplora:remove-style document existing-style)
 	(docxplora:add-style document style))
