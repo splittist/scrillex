@@ -16,8 +16,6 @@
 	       #:3bmd-ext-tables
 	       #:3bmd-ext-code-blocks
 
-	       #:eclector
-	       
 	       #:alexandria
 	       #:serapeum
 	       #:split-sequence
